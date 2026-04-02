@@ -317,6 +317,19 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadContext()
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "enter":
+			if task, ok := m.board.SelectedTask(); ok {
+				project := m.cfg.CurrentProject
+				store := m.storage
+				id := task.ID
+				return m, func() tea.Msg {
+					t, err := store.GetTask(project, id)
+					if err != nil {
+						return ErrMsg{Err: err}
+					}
+					return OpenModalMsg{Task: t, IsNew: false, ColID: t.Status}
+				}
+			}
 		default:
 			m.board.Update(msg)
 		}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"os"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/piflorian/tui-kanban/internal/model"
 	"github.com/piflorian/tui-kanban/internal/storage"
 )
+
+var content embed.FS
 
 func main() {
 	cfgPath := config.DefaultConfigPath()

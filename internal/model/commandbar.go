@@ -12,12 +12,12 @@ import (
 )
 
 type CommandBarModel struct {
-	input             textinput.Model
-	suggestions       []string
+	input              textinput.Model
+	suggestions        []command.Suggestion
 	selectedSuggestion int
-	ctx               command.CompletionContext
-	Width             int
-	err               string
+	ctx                command.CompletionContext
+	Width              int
+	err                string
 }
 
 func NewCommandBar() CommandBarModel {
@@ -92,22 +92,22 @@ func (m *CommandBarModel) applySelected() {
 	if len(m.suggestions) == 0 {
 		return
 	}
-	sugg := m.suggestions[m.selectedSuggestion]
+	val := m.suggestions[m.selectedSuggestion].Value
 	tokens := command.Tokenize(m.input.Value())
 	trailingSpace := len(m.input.Value()) > 1 && m.input.Value()[len(m.input.Value())-1] == ' '
 
 	var newVal string
 	if len(tokens) <= 1 && !trailingSpace {
-		newVal = "/" + sugg + " "
+		newVal = "/" + val + " "
 	} else {
 		if trailingSpace {
-			newVal = "/" + strings.Join(tokens, " ") + " " + sugg + " "
+			newVal = "/" + strings.Join(tokens, " ") + " " + val + " "
 		} else {
 			newVal = "/" + strings.Join(tokens[:len(tokens)-1], " ")
 			if len(tokens) > 1 {
 				newVal += " "
 			}
-			newVal += sugg + " "
+			newVal += val + " "
 		}
 	}
 
@@ -149,11 +149,11 @@ func (m CommandBarModel) View() string {
 			start = len(m.suggestions) - maxShow
 		}
 		for i := start; i < start+maxShow; i++ {
-			s := m.suggestions[i]
+			label := m.suggestions[i].Label
 			if i == m.selectedSuggestion {
-				suggLines = append(suggLines, styles.SuggestionSelectedStyle.Render(fmt.Sprintf(" %-20s", s)))
+				suggLines = append(suggLines, styles.SuggestionSelectedStyle.Render(fmt.Sprintf(" %-36s", label)))
 			} else {
-				suggLines = append(suggLines, styles.SuggestionStyle.Render(fmt.Sprintf(" %-20s", s)))
+				suggLines = append(suggLines, styles.SuggestionStyle.Render(fmt.Sprintf(" %-36s", label)))
 			}
 		}
 		box := lipgloss.NewStyle().

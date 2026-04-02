@@ -32,7 +32,7 @@ var Registry = []CommandDef{
 		Args: []ArgSpec{
 			{Name: "titre", Kind: ArgFree, Required: true},
 		},
-		Help: "Ajouter une tâche dans la colonne active",
+		Help: "Ajouter une tâche dans la colonne active  (-q : création rapide sans modal)",
 	},
 	{
 		Name: "edit",

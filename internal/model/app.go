@@ -89,21 +89,28 @@ func (m AppModel) loadContext() tea.Cmd {
 	project := m.cfg.CurrentProject
 	store := m.storage
 	return func() tea.Msg {
-		ids, err := store.AllTaskIDs(project)
+		tasks, err := store.LoadAll(project)
 		if err != nil {
 			return ErrMsg{Err: err}
+		}
+		ids := make([]string, len(tasks))
+		titles := make(map[string]string, len(tasks))
+		for i, t := range tasks {
+			ids[i] = t.ID
+			titles[t.ID] = t.Title
 		}
 		projects, err := store.ListProjects()
 		if err != nil {
 			projects = nil
 		}
-		return contextLoadedMsg{taskIDs: ids, projects: projects}
+		return contextLoadedMsg{taskIDs: ids, taskTitles: titles, projects: projects}
 	}
 }
 
 type contextLoadedMsg struct {
-	taskIDs  []string
-	projects []string
+	taskIDs    []string
+	taskTitles map[string]string
+	projects   []string
 }
 
 // --- Update ---
@@ -121,6 +128,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.board.SetSize(msg.Width, boardH)
 		m.commandBar.SetWidth(msg.Width)
 		m.modal.Width = msg.Width
+		m.modal.applyInputWidths()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -137,6 +145,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		ctx := command.CompletionContext{
 			TaskIDs:    msg.taskIDs,
+			TaskTitles: msg.taskTitles,
 			ColumnIDs:  colIDs,
 			ProjectIDs: msg.projects,
 		}
@@ -322,11 +331,16 @@ func (m AppModel) handleCommand(parsed command.ParsedCommand) (tea.Model, tea.Cm
 		return m, tea.Quit
 
 	case "add":
+		colID := m.board.ActiveColumnID()
 		title := ""
 		if len(parsed.Args) > 0 {
 			title = parsed.Args[0]
 		}
-		colID := m.board.ActiveColumnID()
+		if parsed.Flags["q"] && title != "" {
+			return m, func() tea.Msg {
+				return TaskCreatedMsg{Task: storage.Task{Title: title, Status: colID}}
+			}
+		}
 		return m, func() tea.Msg {
 			return OpenModalMsg{
 				Task:  storage.Task{Title: title, Status: colID},

@@ -7,12 +7,13 @@ import (
 
 // ParsedCommand est le résultat du parsing d'une entrée slash.
 type ParsedCommand struct {
-	Name string
-	Def  CommandDef
-	Args []string
+	Name  string
+	Def   CommandDef
+	Args  []string
+	Flags map[string]bool
 }
 
-// Parse tokenise et résout une entrée comme "/add Mon titre".
+// Parse tokenise et résout une entrée comme "/add -q Mon titre".
 func Parse(input string) (ParsedCommand, error) {
 	input = strings.TrimSpace(input)
 	if !strings.HasPrefix(input, "/") {
@@ -26,7 +27,17 @@ func Parse(input string) (ParsedCommand, error) {
 	}
 
 	name := parts[0]
-	args := parts[1:]
+
+	// Séparer flags et args positionnels
+	flags := map[string]bool{}
+	var cleanArgs []string
+	for _, p := range parts[1:] {
+		if strings.HasPrefix(p, "-") {
+			flags[strings.TrimPrefix(p, "-")] = true
+		} else {
+			cleanArgs = append(cleanArgs, p)
+		}
+	}
 
 	def, ok := Resolve(name)
 	if !ok {
@@ -34,28 +45,35 @@ func Parse(input string) (ParsedCommand, error) {
 	}
 
 	// Pour les commandes à arg texte libre, regrouper les parties restantes
-	if len(def.Args) > 0 && len(def.Args) == 1 && def.Args[0].Kind == ArgFree && len(args) > 0 {
-		args = []string{strings.Join(args, " ")}
+	if len(def.Args) > 0 && len(def.Args) == 1 && def.Args[0].Kind == ArgFree && len(cleanArgs) > 0 {
+		cleanArgs = []string{strings.Join(cleanArgs, " ")}
 	}
 
-	// Vérifier les args requis
+	// Vérifier les args requis (sauf si un flag dispense de l'arg, ex: -q sans titre)
 	for i, spec := range def.Args {
-		if spec.Required && i >= len(args) {
+		if spec.Required && i >= len(cleanArgs) && !flags["q"] {
 			return ParsedCommand{}, fmt.Errorf("argument requis manquant : <%s>", spec.Name)
 		}
 	}
 
 	return ParsedCommand{
-		Name: def.Name,
-		Def:  def,
-		Args: args,
+		Name:  def.Name,
+		Def:   def,
+		Args:  cleanArgs,
+		Flags: flags,
 	}, nil
 }
 
-// Tokenize découpe l'input en tokens sans valider.
+// Tokenize découpe l'input en tokens sans valider (ignore les flags).
 func Tokenize(input string) []string {
 	if strings.HasPrefix(input, "/") {
 		input = input[1:]
 	}
-	return strings.Fields(input)
+	var result []string
+	for _, f := range strings.Fields(input) {
+		if !strings.HasPrefix(f, "-") {
+			result = append(result, f)
+		}
+	}
+	return result
 }

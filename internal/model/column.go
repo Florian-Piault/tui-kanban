@@ -89,6 +89,7 @@ func (c ColumnModel) View() string {
 		cardWidth := innerWidth - 2
 		selected := c.IsActive && i == c.Cursor
 
+		idLine := styles.TaskIDStyle.Render(task.ID)
 		titleLine := styles.TruncateTitle(task.Title, cardWidth)
 		var dueLine string
 		if task.Due != "" {
@@ -96,7 +97,7 @@ func (c ColumnModel) View() string {
 		}
 
 		var cardLines []string
-		cardLines = append(cardLines, titleLine)
+		cardLines = append(cardLines, idLine, titleLine)
 		if dueLine != "" {
 			cardLines = append(cardLines, dueLine)
 		}

@@ -51,6 +51,10 @@ var (
 				Padding(0, 1).
 				MarginBottom(1)
 
+	TaskIDStyle = lipgloss.NewStyle().
+			Foreground(ColorSecondary).
+			Bold(true)
+
 	DueStyle = lipgloss.NewStyle().
 			Foreground(ColorDue).
 			Italic(true)
@@ -102,5 +106,5 @@ var (
 
 	LabelStyle = lipgloss.NewStyle().
 			Foreground(ColorTextDim).
-			Width(12)
+			Width(13)
 )

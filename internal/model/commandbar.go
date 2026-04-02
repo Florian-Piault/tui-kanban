@@ -25,6 +25,8 @@ func NewCommandBar() CommandBarModel {
 	ti.Placeholder = "/commande…"
 	ti.Focus()
 	ti.CharLimit = 256
+	ti.SetValue("/")
+	ti.CursorEnd()
 	return CommandBarModel{input: ti}
 }
 

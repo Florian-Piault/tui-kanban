@@ -141,6 +141,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ProjectIDs: msg.projects,
 		}
 		m.commandBar.SetContext(ctx)
+		m.commandBar.refreshSuggestions()
 		return m, nil
 
 	case TaskCreatedMsg:

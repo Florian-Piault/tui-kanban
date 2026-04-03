@@ -44,9 +44,12 @@ func Parse(input string) (ParsedCommand, error) {
 		return ParsedCommand{}, fmt.Errorf("commande inconnue : %q", name)
 	}
 
-	// Pour les commandes à arg texte libre, regrouper les parties restantes
-	if len(def.Args) > 0 && len(def.Args) == 1 && def.Args[0].Kind == ArgFree && len(cleanArgs) > 0 {
-		cleanArgs = []string{strings.Join(cleanArgs, " ")}
+	// Si le dernier arg est ArgFree, regrouper tous les tokens restants en une seule chaîne.
+	// Ex: "/add Mon titre"              → ["Mon titre"]
+	// Ex: "/column-rename todo À faire" → ["todo", "À faire"]
+	if len(def.Args) > 0 && def.Args[len(def.Args)-1].Kind == ArgFree && len(cleanArgs) >= len(def.Args) {
+		joined := strings.Join(cleanArgs[len(def.Args)-1:], " ")
+		cleanArgs = append(cleanArgs[:len(def.Args)-1], joined)
 	}
 
 	// Vérifier les args requis (sauf si un flag dispense de l'arg, ex: -q sans titre)

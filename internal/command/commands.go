@@ -65,6 +65,51 @@ var Registry = []CommandDef{
 		Help: "Changer de projet actif",
 	},
 	{
+		Name: "column-add",
+		Args: []ArgSpec{
+			{Name: "nom", Kind: ArgFree, Required: true},
+		},
+		Help: "Ajouter une nouvelle colonne (ex: /column-add Revue)",
+	},
+	{
+		Name:    "column-rename",
+		Aliases: []string{"column-mv"},
+		Args: []ArgSpec{
+			{Name: "id", Kind: ArgColumnID, Required: true},
+			{Name: "nouveau-nom", Kind: ArgFree, Required: true},
+		},
+		Help: "Renommer une colonne (ex: /column-rename todo À traiter)",
+	},
+	{
+		Name:    "column-delete",
+		Aliases: []string{"column-rm"},
+		Args: []ArgSpec{
+			{Name: "id", Kind: ArgColumnID, Required: true},
+		},
+		Help: "Supprimer une colonne",
+	},
+	{
+		Name: "column-left",
+		Args: []ArgSpec{
+			{Name: "id", Kind: ArgColumnID, Required: true},
+		},
+		Help: "Déplacer une colonne vers la gauche",
+	},
+	{
+		Name: "column-right",
+		Args: []ArgSpec{
+			{Name: "id", Kind: ArgColumnID, Required: true},
+		},
+		Help: "Déplacer une colonne vers la droite",
+	},
+	{
+		Name: "projects-dir",
+		Args: []ArgSpec{
+			{Name: "chemin", Kind: ArgFree, Required: true},
+		},
+		Help: "Changer le répertoire de base des projets (ex: /projects-dir ~/work/kanban)",
+	},
+	{
 		Name:    "quit",
 		Aliases: []string{"q"},
 		Help:    "Quitter l'application",

@@ -46,3 +46,18 @@ type ConfirmDeleteMsg struct{ ID string }
 type CommandParsedMsg struct {
 	Parsed command.ParsedCommand
 }
+
+// Config columns
+type ColumnAddMsg struct{ Name string }
+type ColumnRenameMsg struct{ ID, NewName string }
+type ColumnDeleteMsg struct{ ID string }
+type ColumnMoveMsg struct {
+	ID        string
+	Direction int // -1 gauche, +1 droite
+}
+
+// Config globals
+type ProjectsDirMsg struct{ Path string }
+
+// Sauvegarde config
+type configSavedMsg struct{}

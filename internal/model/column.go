@@ -64,7 +64,7 @@ func (c *ColumnModel) cardHeight(task storage.Task) int {
 	if cardWidth < 1 {
 		cardWidth = 1
 	}
-	wrapped := styles.WrapText(task.Title, cardWidth)
+	wrapped := styles.WrapText(task.Title, cardWidth-2) // lipgloss wraps à width-leftPad-rightPad
 	titleLines := strings.Count(wrapped, "\n") + 1
 
 	h := 4 + titleLines // border-top(1) + ID(1) + title(n) + border-bottom(1) + margin(1)
@@ -77,9 +77,10 @@ func (c *ColumnModel) cardHeight(task storage.Task) int {
 	return h
 }
 
-// availableH retourne la hauteur disponible pour les cartes dans la colonne.
-func (c *ColumnModel) availableH() int {
-	h := c.Height - 4 // bordures(2) + titre(1) + séparateur(1)
+// cardAreaHeight retourne la hauteur disponible pour les cartes.
+// Overhead fixe : bordures(2) + titre(1) + séparateur(1) + indicateur_haut(1) + indicateur_bas(1) = 6
+func (c *ColumnModel) cardAreaHeight() int {
+	h := c.Height - 6
 	if h < 1 {
 		h = 1
 	}
@@ -96,7 +97,7 @@ func (c *ColumnModel) ensureScrollVisible() {
 		c.scroll = c.Cursor
 		return
 	}
-	avail := c.availableH()
+	avail := c.cardAreaHeight()
 	for {
 		h := 0
 		visible := false
@@ -138,81 +139,80 @@ func (c ColumnModel) View() string {
 	lines = append(lines, colTitle)
 	lines = append(lines, strings.Repeat("─", innerWidth))
 
-	avail := c.availableH()
-	cardWidth := innerWidth - 2
-
-	// Indicateur de défilement supérieur
+	// Indicateur supérieur : toujours rendu (ligne vide si pas de scroll).
 	if c.scroll > 0 {
 		lines = append(lines, styles.HelpStyle.Render(fmt.Sprintf("  ▲ %d au-dessus", c.scroll)))
-		avail--
+	} else {
+		lines = append(lines, "")
 	}
 
-	lastVisible := c.scroll - 1
-	usedH := 0
-
-	for i := c.scroll; i < len(c.Tasks); i++ {
-		task := c.Tasks[i]
-		ch := c.cardHeight(task)
-
-		// Réserver 1 ligne pour l'indicateur inférieur si ce n'est pas la dernière tâche
-		reserved := 0
-		if i < len(c.Tasks)-1 && usedH+ch >= avail {
-			reserved = 1
-		}
-		if usedH+ch+reserved > avail {
-			break
-		}
-
-		selected := c.IsActive && i == c.Cursor
-
-		idLine := styles.TaskIDStyle.Render(task.ID)
-		titleLine := styles.WrapText(task.Title, cardWidth)
-		var descLine string
-		if task.Description != "" {
-			descLine = lipgloss.NewStyle().
-				Foreground(styles.ColorTextDim).
-				Italic(true).
-				Render(styles.TruncateTitle(task.Description, cardWidth))
-		}
-		var dueLine string
-		if task.Due != "" {
-			dueLine = styles.DueStyle.Render("⏰ " + task.Due)
-		}
-
-		var cardLines []string
-		cardLines = append(cardLines, idLine, titleLine)
-		if descLine != "" {
-			cardLines = append(cardLines, descLine)
-		}
-		if dueLine != "" {
-			cardLines = append(cardLines, dueLine)
-		}
-		cardContent := strings.Join(cardLines, "\n")
-
-		var card string
-		if selected {
-			card = styles.CardSelectedStyle.Width(cardWidth).Render(cardContent)
-		} else {
-			card = styles.CardStyle.Width(cardWidth).Render(cardContent)
-		}
-		lines = append(lines, card)
-		usedH += ch
-		lastVisible = i
-	}
-
-	// Indicateur de défilement inférieur
-	remaining := len(c.Tasks) - lastVisible - 1
-	if remaining > 0 {
-		lines = append(lines, styles.HelpStyle.Render(fmt.Sprintf("  ▼ %d en-dessous", remaining)))
-	}
+	avail := c.cardAreaHeight()
+	cardWidth := innerWidth - 2
 
 	if len(c.Tasks) == 0 {
 		empty := lipgloss.NewStyle().
 			Foreground(styles.ColorMuted).
 			Italic(true).
-			Padding(1, 0).
 			Render("Vide")
 		lines = append(lines, empty)
+		// Indicateur bas : ligne vide pour l'alignement
+		lines = append(lines, "")
+	} else {
+		lastVisible := c.scroll - 1
+		usedH := 0
+
+		for i := c.scroll; i < len(c.Tasks); i++ {
+			task := c.Tasks[i]
+			ch := c.cardHeight(task)
+
+			if usedH+ch > avail {
+				break
+			}
+
+			selected := c.IsActive && i == c.Cursor
+
+			idLine := styles.TaskIDStyle.Render(task.ID)
+			titleLine := styles.WrapText(task.Title, cardWidth-2)
+			var descLine string
+			if task.Description != "" {
+				descLine = lipgloss.NewStyle().
+					Foreground(styles.ColorTextDim).
+					Italic(true).
+					Render(styles.TruncateTitle(task.Description, cardWidth))
+			}
+			var dueLine string
+			if task.Due != "" {
+				dueLine = styles.DueStyle.Render("⏰ " + task.Due)
+			}
+
+			var cardLines []string
+			cardLines = append(cardLines, idLine, titleLine)
+			if descLine != "" {
+				cardLines = append(cardLines, descLine)
+			}
+			if dueLine != "" {
+				cardLines = append(cardLines, dueLine)
+			}
+			cardContent := strings.Join(cardLines, "\n")
+
+			var card string
+			if selected {
+				card = styles.CardSelectedStyle.Width(cardWidth).Render(cardContent)
+			} else {
+				card = styles.CardStyle.Width(cardWidth).Render(cardContent)
+			}
+			lines = append(lines, card)
+			usedH += ch
+			lastVisible = i
+		}
+
+		// Indicateur inférieur : toujours rendu (ligne vide si tout est visible).
+		remaining := len(c.Tasks) - lastVisible - 1
+		if remaining > 0 {
+			lines = append(lines, styles.HelpStyle.Render(fmt.Sprintf("  ▼ %d en-dessous", remaining)))
+		} else {
+			lines = append(lines, "")
+		}
 	}
 
 	body := strings.Join(lines, "\n")

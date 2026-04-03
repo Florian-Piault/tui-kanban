@@ -23,7 +23,7 @@ func main() {
 
 	store := storage.New(cfg.ProjectsDir)
 
-	app := model.New(cfg, store)
+	app := model.New(cfg, store, cfgPath)
 
 	p := tea.NewProgram(
 		app,

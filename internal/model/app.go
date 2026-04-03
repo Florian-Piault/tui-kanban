@@ -21,11 +21,12 @@ const (
 	StateConfirming          // confirmation de suppression
 )
 
-const reservedLines = 4 // header + séparateur + commandbar/statusbar + marge
+const reservedLines = 2 // header(1) + statusbar(1)
 
 type AppModel struct {
 	state   AppState
 	cfg     *config.Config
+	cfgPath string
 	storage *storage.Storage
 
 	board      BoardModel
@@ -42,9 +43,10 @@ type AppModel struct {
 	height int
 }
 
-func New(cfg *config.Config, store *storage.Storage) AppModel {
+func New(cfg *config.Config, store *storage.Storage, cfgPath string) AppModel {
 	return AppModel{
 		cfg:        cfg,
+		cfgPath:    cfgPath,
 		storage:    store,
 		board:      NewBoard(cfg),
 		commandBar: NewCommandBar(),
@@ -226,7 +228,65 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.board = NewBoard(m.cfg)
 		m.board.SetSize(m.width, m.height-reservedLines)
 		m.setFlash("Projet : "+msg.Name, false)
-		return m, tea.Batch(m.loadAllColumns(), m.loadContext())
+		return m, tea.Batch(m.saveConfig(), m.loadAllColumns(), m.loadContext())
+
+	case ColumnAddMsg:
+		col, err := m.cfg.AddColumn(msg.Name)
+		if err != nil {
+			m.setFlash("✗ "+err.Error(), true)
+			return m, nil
+		}
+		m.rebuildBoard()
+		m.setFlash(fmt.Sprintf("✓ Colonne %q ajoutée (ID : %s)", col.Name, col.ID), false)
+		return m, tea.Batch(m.saveConfig(), m.loadAllColumns(), m.loadContext())
+
+	case ColumnRenameMsg:
+		if err := m.cfg.RenameColumn(msg.ID, msg.NewName); err != nil {
+			m.setFlash("✗ "+err.Error(), true)
+			return m, nil
+		}
+		m.rebuildBoard()
+		m.setFlash(fmt.Sprintf("✓ Colonne %q renommée en %q", msg.ID, msg.NewName), false)
+		return m, tea.Batch(m.saveConfig(), m.loadAllColumns(), m.loadContext())
+
+	case ColumnDeleteMsg:
+		if err := m.cfg.DeleteColumn(msg.ID); err != nil {
+			m.setFlash("✗ "+err.Error(), true)
+			return m, nil
+		}
+		m.rebuildBoard()
+		m.setFlash(fmt.Sprintf("✓ Colonne %q supprimée", msg.ID), false)
+		return m, tea.Batch(m.saveConfig(), m.loadContext())
+
+	case ColumnMoveMsg:
+		var err error
+		if msg.Direction < 0 {
+			err = m.cfg.MoveColumnLeft(msg.ID)
+		} else {
+			err = m.cfg.MoveColumnRight(msg.ID)
+		}
+		if err != nil {
+			m.setFlash("✗ "+err.Error(), true)
+			return m, nil
+		}
+		m.rebuildBoard()
+		dir := "droite"
+		if msg.Direction < 0 {
+			dir = "gauche"
+		}
+		m.setFlash(fmt.Sprintf("✓ Colonne %q déplacée vers la %s", msg.ID, dir), false)
+		return m, tea.Batch(m.saveConfig(), m.loadAllColumns(), m.loadContext())
+
+	case ProjectsDirMsg:
+		m.cfg.ProjectsDir = msg.Path
+		m.storage = storage.New(msg.Path)
+		m.board = NewBoard(m.cfg)
+		m.board.SetSize(m.width, m.height-reservedLines)
+		m.setFlash("✓ Répertoire : "+msg.Path, false)
+		return m, tea.Batch(m.saveConfig(), m.loadAllColumns(), m.loadContext())
+
+	case configSavedMsg:
+		return m, nil
 
 	case CommandParsedMsg:
 		return m.handleCommand(msg.Parsed)
@@ -275,6 +335,33 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 type taskSavedMsg struct{ task storage.Task }
 type taskDeletedOKMsg struct{ id string }
 type taskMovedOKMsg struct{ id, toCol string }
+
+// saveConfig persiste la config sur disque de façon asynchrone.
+func (m AppModel) saveConfig() tea.Cmd {
+	cfg := m.cfg
+	path := m.cfgPath
+	return func() tea.Msg {
+		if err := config.Save(cfg, path); err != nil {
+			return ErrMsg{Err: err}
+		}
+		return configSavedMsg{}
+	}
+}
+
+// rebuildBoard reconstruit le board depuis la config en préservant la colonne active.
+func (m *AppModel) rebuildBoard() {
+	activeID := m.board.ActiveColumnID()
+	m.board = NewBoard(m.cfg)
+	m.board.SetSize(m.width, m.height-reservedLines)
+	for i, col := range m.board.Columns {
+		if col.ID == activeID {
+			m.board.Columns[m.board.ActiveCol].IsActive = false
+			m.board.ActiveCol = i
+			m.board.Columns[i].IsActive = true
+			break
+		}
+	}
+}
 
 func (m *AppModel) setFlash(text string, isError bool) {
 	m.flash = text
@@ -395,8 +482,50 @@ func (m AppModel) handleCommand(parsed command.ParsedCommand) (tea.Model, tea.Cm
 		}
 		return m, func() tea.Msg { return ProjectChangedMsg{Name: parsed.Args[0]} }
 
+	case "column-add":
+		if len(parsed.Args) == 0 {
+			return m, func() tea.Msg { return ErrMsg{Err: fmt.Errorf("nom de colonne requis")} }
+		}
+		name := parsed.Args[0]
+		return m, func() tea.Msg { return ColumnAddMsg{Name: name} }
+
+	case "column-rename":
+		if len(parsed.Args) < 2 {
+			return m, func() tea.Msg { return ErrMsg{Err: fmt.Errorf("usage : /column-rename <id> <nouveau-nom>")} }
+		}
+		id, newName := parsed.Args[0], parsed.Args[1]
+		return m, func() tea.Msg { return ColumnRenameMsg{ID: id, NewName: newName} }
+
+	case "column-delete":
+		if len(parsed.Args) == 0 {
+			return m, func() tea.Msg { return ErrMsg{Err: fmt.Errorf("ID de colonne requis")} }
+		}
+		id := parsed.Args[0]
+		return m, func() tea.Msg { return ColumnDeleteMsg{ID: id} }
+
+	case "column-left":
+		if len(parsed.Args) == 0 {
+			return m, func() tea.Msg { return ErrMsg{Err: fmt.Errorf("ID de colonne requis")} }
+		}
+		id := parsed.Args[0]
+		return m, func() tea.Msg { return ColumnMoveMsg{ID: id, Direction: -1} }
+
+	case "column-right":
+		if len(parsed.Args) == 0 {
+			return m, func() tea.Msg { return ErrMsg{Err: fmt.Errorf("ID de colonne requis")} }
+		}
+		id := parsed.Args[0]
+		return m, func() tea.Msg { return ColumnMoveMsg{ID: id, Direction: +1} }
+
+	case "projects-dir":
+		if len(parsed.Args) == 0 {
+			return m, func() tea.Msg { return ErrMsg{Err: fmt.Errorf("chemin requis")} }
+		}
+		path := parsed.Args[0]
+		return m, func() tea.Msg { return ProjectsDirMsg{Path: path} }
+
 	case "help":
-		m.setFlash("Commandes : /add /edit /delete /move /project /quit  •  h/l/j/k : navigation", false)
+		m.setFlash("Commandes : /add /edit /delete /move /project /column-add /column-rename /column-delete /column-left /column-right /projects-dir /quit", false)
 	}
 	return m, nil
 }

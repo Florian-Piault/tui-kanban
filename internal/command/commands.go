@@ -58,6 +58,13 @@ var Registry = []CommandDef{
 		Help: "Déplacer une tâche vers une colonne",
 	},
 	{
+		Name: "sub-add",
+		Args: []ArgSpec{
+			{Name: "texte", Kind: ArgFree, Required: true},
+		},
+		Help: "Ajouter une sous-tâche à la tâche sélectionnée",
+	},
+	{
 		Name: "project",
 		Args: []ArgSpec{
 			{Name: "nom", Kind: ArgProjectName, Required: true},

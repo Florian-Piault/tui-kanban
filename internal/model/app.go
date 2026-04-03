@@ -19,6 +19,7 @@ const (
 	StateCommanding          // barre de commandes ouverte
 	StateEditing             // modal formulaire ouvert
 	StateConfirming          // confirmation de suppression
+	StateInspecting          // vue détaillée d'une tâche + checklists
 )
 
 const reservedLines = 2 // header(1) + statusbar(1)
@@ -32,6 +33,7 @@ type AppModel struct {
 	board      BoardModel
 	commandBar CommandBarModel
 	modal      ModalModel
+	inspect    InspectModel
 
 	flash        string
 	flashIsError bool
@@ -51,6 +53,7 @@ func New(cfg *config.Config, store *storage.Storage, cfgPath string) AppModel {
 		board:      NewBoard(cfg),
 		commandBar: NewCommandBar(),
 		modal:      NewModal(),
+		inspect:    NewInspectModel(),
 	}
 }
 
@@ -131,6 +134,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.commandBar.SetWidth(msg.Width)
 		m.modal.Width = msg.Width
 		m.modal.applyInputWidths()
+		m.inspect.Width = msg.Width
 		return m, nil
 
 	case tea.KeyMsg:
@@ -173,6 +177,32 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = StateBrowsing
 		m.setFlash("✓ Tâche sauvegardée", false)
 		return m, tea.Batch(m.loadAllColumns(), m.loadContext())
+
+	case openInspectMsg:
+		m.state = StateInspecting
+		m.inspect.Width = m.width
+		m.inspect.Open(msg.task)
+		return m, nil
+
+	case CloseInspectMsg:
+		m.state = StateBrowsing
+		return m, tea.ClearScreen
+
+	case checklistUpdatedMsg:
+		project := m.cfg.CurrentProject
+		task := msg.task
+		store := m.storage
+		return m, func() tea.Msg {
+			saved, err := store.SaveTask(project, task)
+			if err != nil {
+				return ErrMsg{Err: err}
+			}
+			return checklistSavedMsg{task: saved}
+		}
+
+	case checklistSavedMsg:
+		m.inspect.task = msg.task
+		return m, m.loadAllColumns()
 
 	case TaskUpdatedMsg:
 		project := m.cfg.CurrentProject
@@ -328,6 +358,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.modal, cmd = m.modal.Update(msg)
 		return m, cmd
+	case StateInspecting:
+		var cmd tea.Cmd
+		m.inspect, cmd = m.inspect.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -395,6 +429,17 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case StateInspecting:
+		if msg.String() == "/" || msg.String() == ":" {
+			m.state = StateCommanding
+			m.commandBar = NewCommandBar()
+			m.commandBar.SetWidth(m.width)
+			return m, m.loadContext()
+		}
+		var cmd tea.Cmd
+		m.inspect, cmd = m.inspect.Update(msg)
+		return m, cmd
+
 	case StateBrowsing:
 		switch msg.String() {
 		case "/", ":":
@@ -414,7 +459,7 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					if err != nil {
 						return ErrMsg{Err: err}
 					}
-					return OpenModalMsg{Task: t, IsNew: false, ColID: t.Status}
+					return openInspectMsg{task: t}
 				}
 			}
 		default:
@@ -524,8 +569,33 @@ func (m AppModel) handleCommand(parsed command.ParsedCommand) (tea.Model, tea.Cm
 		path := parsed.Args[0]
 		return m, func() tea.Msg { return ProjectsDirMsg{Path: path} }
 
+	case "sub-add":
+		if len(parsed.Args) == 0 {
+			return m, func() tea.Msg { return ErrMsg{Err: fmt.Errorf("texte de sous-tâche requis")} }
+		}
+		text := parsed.Args[0]
+		task, ok := m.board.SelectedTask()
+		if !ok {
+			return m, func() tea.Msg { return ErrMsg{Err: fmt.Errorf("aucune tâche sélectionnée")} }
+		}
+		taskID := task.ID
+		project := m.cfg.CurrentProject
+		store := m.storage
+		return m, func() tea.Msg {
+			t, err := store.GetTask(project, taskID)
+			if err != nil {
+				return ErrMsg{Err: err}
+			}
+			t.Checklist = append(t.Checklist, storage.ChecklistItem{Text: text})
+			saved, err := store.SaveTask(project, t)
+			if err != nil {
+				return ErrMsg{Err: err}
+			}
+			return taskSavedMsg{task: saved}
+		}
+
 	case "help":
-		m.setFlash("Commandes : /add /edit /delete /move /project /column-add /column-rename /column-delete /column-left /column-right /projects-dir /quit", false)
+		m.setFlash("Commandes : /add /edit /delete /move /sub-add /project /column-add /column-rename /column-delete /column-left /column-right /projects-dir /quit", false)
 	}
 	return m, nil
 }
@@ -542,6 +612,8 @@ func (m AppModel) View() string {
 		bottom = m.commandBar.View()
 	case StateEditing:
 		bottom = m.modal.View()
+	case StateInspecting:
+		bottom = m.inspect.View()
 	case StateConfirming:
 		bottom = styles.ErrorStyle.Render(fmt.Sprintf("Supprimer %s ? (y/n)", m.confirmID))
 	default:
@@ -555,12 +627,30 @@ func (m AppModel) View() string {
 		boardH = 1
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, m.board.ViewAtHeight(boardH), bottom)
+	view := lipgloss.JoinVertical(lipgloss.Left, header, m.board.ViewAtHeight(boardH), bottom)
+	return m.padToWidth(view)
+}
+
+// padToWidth force chaque ligne du rendu à exactement m.width caractères visibles.
+// Sans ce padding, les artefacts de l'ancien contenu (plus large) restent à l'écran
+// quand on passe d'une vue large (inspect, modal) à une vue plus étroite (statusbar).
+func (m AppModel) padToWidth(view string) string {
+	if m.width <= 0 {
+		return view
+	}
+	lines := strings.Split(view, "\n")
+	for i, line := range lines {
+		w := lipgloss.Width(line)
+		if w < m.width {
+			lines[i] = line + strings.Repeat(" ", m.width-w)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m AppModel) renderHeader() string {
 	project := styles.StatusBarProjectStyle.Render("📋 " + m.cfg.CurrentProject)
-	hint := styles.HelpStyle.Render("  /commande  •  h/l/j/k : navigation  •  q : quitter")
+	hint := styles.HelpStyle.Render("  /commande  •  hjkl : navigation  •  enter : inspecter  •  q : quitter")
 	return lipgloss.JoinHorizontal(lipgloss.Top, project, hint)
 }
 

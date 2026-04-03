@@ -10,6 +10,19 @@ import (
 	"github.com/piflorian/tui-kanban/internal/styles"
 )
 
+// renderChecklistBar retourne une ligne de progression compacte pour les cartes.
+func renderChecklistBar(done, total int) string {
+	const barWidth = 6
+	filled := barWidth * done / total
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+	color := styles.ColorPrimary
+	if done == total {
+		color = styles.ColorSuccess
+	}
+	barStr := lipgloss.NewStyle().Foreground(color).Render(bar)
+	return fmt.Sprintf("%d/%d ", done, total) + barStr
+}
+
 type ColumnModel struct {
 	ID       string
 	Name     string
@@ -72,6 +85,9 @@ func (c *ColumnModel) cardHeight(task storage.Task) int {
 		h++
 	}
 	if task.Due != "" {
+		h++
+	}
+	if _, total := task.ChecklistProgress(); total > 0 {
 		h++
 	}
 	return h
@@ -185,6 +201,12 @@ func (c ColumnModel) View() string {
 				dueLine = styles.DueStyle.Render("⏰ " + task.Due)
 			}
 
+			done, total := task.ChecklistProgress()
+			var progressLine string
+			if total > 0 {
+				progressLine = renderChecklistBar(done, total)
+			}
+
 			var cardLines []string
 			cardLines = append(cardLines, idLine, titleLine)
 			if descLine != "" {
@@ -192,6 +214,9 @@ func (c ColumnModel) View() string {
 			}
 			if dueLine != "" {
 				cardLines = append(cardLines, dueLine)
+			}
+			if progressLine != "" {
+				cardLines = append(cardLines, progressLine)
 			}
 			cardContent := strings.Join(cardLines, "\n")
 

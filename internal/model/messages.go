@@ -61,3 +61,9 @@ type ProjectsDirMsg struct{ Path string }
 
 // Sauvegarde config
 type configSavedMsg struct{}
+
+// Inspect / checklists
+type CloseInspectMsg struct{}
+type openInspectMsg struct{ task storage.Task }
+type checklistUpdatedMsg struct{ task storage.Task }
+type checklistSavedMsg struct{ task storage.Task }

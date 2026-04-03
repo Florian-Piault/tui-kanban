@@ -12,55 +12,77 @@ import (
 	"github.com/piflorian/tui-kanban/internal/styles"
 )
 
-type modalField int
+// focusTarget représente le champ actif dans le modal.
+type focusTarget int
 
 const (
-	fieldTitle modalField = iota
-	fieldDescription
-	fieldDue
-	fieldCount
+	ftTitle       focusTarget = iota // 0 — textinput[0]
+	ftType                           // 1 — sélecteur cyclique
+	ftDescription                    // 2 — textinput[1]
+	ftDue                            // 3 — textinput[2]
+	ftCount                          // 4
 )
 
+// textInputIdx mappe un focus vers son indice dans inputs[] (-1 si pas un textinput).
+func textInputIdx(f focusTarget) int {
+	switch f {
+	case ftTitle:
+		return 0
+	case ftDescription:
+		return 1
+	case ftDue:
+		return 2
+	}
+	return -1
+}
+
 type ModalModel struct {
-	fields  [fieldCount]textinput.Model
-	focused modalField
-	task    storage.Task
-	isNew   bool
-	colID   string
-	Width   int
+	inputs   [3]textinput.Model // title=0, description=1, due=2
+	focused  focusTarget
+	taskType string
+	task     storage.Task
+	isNew    bool
+	colID    string
+	Width    int
 }
 
 func NewModal() ModalModel {
 	placeholders := []string{"Titre de la tâche", "Description (optionnelle)", "YYYY-MM-DD (optionnel)"}
 
-	var fields [fieldCount]textinput.Model
-	for i := range fields {
+	var inputs [3]textinput.Model
+	for i := range inputs {
 		ti := textinput.New()
 		ti.Placeholder = placeholders[i]
 		ti.CharLimit = 256
-		fields[i] = ti
+		inputs[i] = ti
 	}
-	fields[fieldDescription].CharLimit = 0
-	fields[fieldDue].CharLimit = 10
-	fields[fieldTitle].Focus()
+	inputs[1].CharLimit = 0 // description illimitée
+	inputs[2].CharLimit = 10
+	inputs[0].Focus()
 
-	return ModalModel{fields: fields, isNew: true}
+	return ModalModel{inputs: inputs, isNew: true, taskType: storage.TypeTask}
 }
 
 func (m *ModalModel) Open(task storage.Task, isNew bool, colID string) {
 	m.task = task
 	m.isNew = isNew
 	m.colID = colID
-	m.focused = fieldTitle
+	m.focused = ftTitle
 
-	m.fields[fieldTitle].SetValue(task.Title)
-	m.fields[fieldDescription].SetValue(task.Description)
-	m.fields[fieldDue].SetValue(task.Due)
-
-	for i := range m.fields {
-		m.fields[i].Blur()
+	if task.Type != "" {
+		m.taskType = storage.NormalizeType(task.Type)
+	} else {
+		m.taskType = storage.TypeTask
 	}
-	m.fields[fieldTitle].Focus()
+
+	m.inputs[0].SetValue(task.Title)
+	m.inputs[1].SetValue(task.Description)
+	m.inputs[2].SetValue(task.Due)
+
+	for i := range m.inputs {
+		m.inputs[i].Blur()
+	}
+	m.inputs[0].Focus()
 	m.applyInputWidths()
 }
 
@@ -72,8 +94,8 @@ func (m *ModalModel) applyInputWidths() {
 	if inputWidth < 20 {
 		inputWidth = 20
 	}
-	for i := range m.fields {
-		m.fields[i].Width = inputWidth
+	for i := range m.inputs {
+		m.inputs[i].Width = inputWidth
 	}
 }
 
@@ -83,45 +105,106 @@ func (m ModalModel) Update(msg tea.Msg) (ModalModel, tea.Cmd) {
 		switch msg.String() {
 		case "esc":
 			return m, func() tea.Msg { return CloseModalMsg{} }
+
 		case "tab", "down":
-			m.fields[m.focused].Blur()
-			m.focused = (m.focused + 1) % fieldCount
-			m.fields[m.focused].Focus()
+			if idx := textInputIdx(m.focused); idx >= 0 {
+				m.inputs[idx].Blur()
+			}
+			m.focused = (m.focused + 1) % ftCount
+			if idx := textInputIdx(m.focused); idx >= 0 {
+				m.inputs[idx].Focus()
+			}
 			return m, nil
+
 		case "shift+tab", "up":
-			m.fields[m.focused].Blur()
-			m.focused = (m.focused - 1 + fieldCount) % fieldCount
-			m.fields[m.focused].Focus()
+			if idx := textInputIdx(m.focused); idx >= 0 {
+				m.inputs[idx].Blur()
+			}
+			m.focused = (m.focused - 1 + ftCount) % ftCount
+			if idx := textInputIdx(m.focused); idx >= 0 {
+				m.inputs[idx].Focus()
+			}
 			return m, nil
+
 		case "ctrl+s", "enter":
-			if m.focused == fieldDue || msg.String() == "ctrl+s" {
+			if m.focused == ftDue || msg.String() == "ctrl+s" {
 				return m, m.submit()
 			}
-			m.fields[m.focused].Blur()
-			m.focused = (m.focused + 1) % fieldCount
-			m.fields[m.focused].Focus()
-			return m, nil
-		case "backspace", "ctrl+h":
-			if m.focused == fieldDue {
-				m.fields[fieldDue].SetValue(dueBackspace(m.fields[fieldDue].Value()))
-				m.fields[fieldDue].CursorEnd()
+			if m.focused == ftType {
+				// Enter sur le sélecteur de type → avancer au champ suivant
+				if idx := textInputIdx(m.focused); idx >= 0 {
+					m.inputs[idx].Blur()
+				}
+				m.focused = (m.focused + 1) % ftCount
+				if idx := textInputIdx(m.focused); idx >= 0 {
+					m.inputs[idx].Focus()
+				}
 				return m, nil
 			}
+			if idx := textInputIdx(m.focused); idx >= 0 {
+				m.inputs[idx].Blur()
+			}
+			m.focused = (m.focused + 1) % ftCount
+			if idx := textInputIdx(m.focused); idx >= 0 {
+				m.inputs[idx].Focus()
+			}
+			return m, nil
+
+		case " ", "right", "l":
+			if m.focused == ftType {
+				m.taskType = nextTaskType(m.taskType)
+				return m, nil
+			}
+
+		case "left", "h":
+			if m.focused == ftType {
+				m.taskType = prevTaskType(m.taskType)
+				return m, nil
+			}
+
+		case "backspace", "ctrl+h":
+			if m.focused == ftDue {
+				m.inputs[2].SetValue(dueBackspace(m.inputs[2].Value()))
+				m.inputs[2].CursorEnd()
+				return m, nil
+			}
+
 		default:
-			if m.focused == fieldDue {
+			if m.focused == ftDue {
 				s := msg.String()
 				if len(s) == 1 && s[0] >= '0' && s[0] <= '9' {
-					m.fields[fieldDue].SetValue(dueInsertDigit(m.fields[fieldDue].Value(), s))
-					m.fields[fieldDue].CursorEnd()
+					m.inputs[2].SetValue(dueInsertDigit(m.inputs[2].Value(), s))
+					m.inputs[2].CursorEnd()
 				}
 				return m, nil
 			}
 		}
 	}
 
-	var cmd tea.Cmd
-	m.fields[m.focused], cmd = m.fields[m.focused].Update(msg)
-	return m, cmd
+	if idx := textInputIdx(m.focused); idx >= 0 {
+		var cmd tea.Cmd
+		m.inputs[idx], cmd = m.inputs[idx].Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func nextTaskType(current string) string {
+	for i, t := range storage.AllTypes {
+		if t == current {
+			return storage.AllTypes[(i+1)%len(storage.AllTypes)]
+		}
+	}
+	return storage.TypeTask
+}
+
+func prevTaskType(current string) string {
+	for i, t := range storage.AllTypes {
+		if t == current {
+			return storage.AllTypes[(i-1+len(storage.AllTypes))%len(storage.AllTypes)]
+		}
+	}
+	return storage.TypeTask
 }
 
 // dueInsertDigit ajoute un chiffre validé à la valeur YYYY-MM-DD en cours de saisie.
@@ -193,7 +276,6 @@ func formatDueDigits(digits string) string {
 		}
 		sb.WriteRune(c)
 	}
-	// Affiche le tiret de séparation dès qu'on a exactement 4 ou 6 chiffres
 	n := len(digits)
 	if n == 4 || n == 6 {
 		sb.WriteByte('-')
@@ -203,9 +285,10 @@ func formatDueDigits(digits string) string {
 
 func (m ModalModel) submit() tea.Cmd {
 	task := m.task
-	task.Title = strings.TrimSpace(m.fields[fieldTitle].Value())
-	task.Description = strings.TrimSpace(m.fields[fieldDescription].Value())
-	task.Due = strings.TrimSpace(m.fields[fieldDue].Value())
+	task.Title = strings.TrimSpace(m.inputs[0].Value())
+	task.Type = m.taskType
+	task.Description = strings.TrimSpace(m.inputs[1].Value())
+	task.Due = strings.TrimSpace(m.inputs[2].Value())
 
 	if m.isNew {
 		task.Status = m.colID
@@ -226,28 +309,31 @@ func (m ModalModel) View() string {
 		title = "Modifier " + m.task.ID
 	}
 
-	labels := []string{"Titre       ", "Description ", "Échéance    "}
-	hints := []string{"", "", ""}
+	labels := []string{"Titre       ", "Type        ", "Description ", "Échéance    "}
 
 	var lines []string
 	lines = append(lines, styles.ModalTitleStyle.Render(title))
 	lines = append(lines, "")
 
-	for i, field := range m.fields {
+	for i := focusTarget(0); i < ftCount; i++ {
 		label := styles.LabelStyle.Render(labels[i] + ":")
-		input := field.View()
-		line := lipgloss.JoinHorizontal(lipgloss.Top, label, " ", input)
-		lines = append(lines, line)
-		if hints[i] != "" {
-			lines = append(lines, lipgloss.NewStyle().
-				Foreground(styles.ColorMuted).
-				MarginLeft(14).
-				Render(hints[i]))
+
+		var content string
+		switch i {
+		case ftType:
+			content = renderTypeSelector(m.taskType, m.focused == ftType)
+		default:
+			idx := textInputIdx(i)
+			content = m.inputs[idx].View()
 		}
+
+		line := lipgloss.JoinHorizontal(lipgloss.Top, label, " ", content)
+		lines = append(lines, line)
 		lines = append(lines, "")
 	}
 
-	lines = append(lines, styles.HelpStyle.Render("Tab/Shift+Tab : naviguer  •  Ctrl+S : valider  •  Esc : annuler"))
+	hint := "Tab/↑↓ : naviguer  •  ◄► : changer le type  •  Ctrl+S : valider  •  Esc : annuler"
+	lines = append(lines, styles.HelpStyle.Render(hint))
 
 	content := strings.Join(lines, "\n")
 	width := m.Width - 8
@@ -256,4 +342,18 @@ func (m ModalModel) View() string {
 	}
 
 	return styles.ModalStyle.Width(width).Render(content)
+}
+
+// renderTypeSelector affiche le sélecteur de type avec badge coloré.
+func renderTypeSelector(taskType string, focused bool) string {
+	color := styles.TypeColor(taskType)
+	label := strings.ToUpper(taskType)
+
+	badgeStyle := lipgloss.NewStyle().Foreground(color).Bold(true)
+
+	if focused {
+		arrow := lipgloss.NewStyle().Foreground(styles.ColorTextDim).Render
+		return arrow("◄ ") + badgeStyle.Render(label) + arrow(" ►")
+	}
+	return badgeStyle.Render(label)
 }

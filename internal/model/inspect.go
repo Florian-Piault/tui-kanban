@@ -140,7 +140,7 @@ func (m InspectModel) View() string {
 	var lines []string
 
 	// En-tête : ID + titre
-	idStr := styles.TaskIDStyle.Render(m.task.ID)
+	idStr := lipgloss.NewStyle().Foreground(styles.TypeColor(m.task.Type)).Bold(true).Render(m.task.ID)
 	titleStr := lipgloss.NewStyle().Foreground(styles.ColorText).Bold(true).
 		Render(styles.TruncateTitle(m.task.Title, innerWidth-len(m.task.ID)-3))
 	lines = append(lines, idStr+"  "+titleStr)
@@ -151,7 +151,7 @@ func (m InspectModel) View() string {
 			Render(styles.TruncateTitle(m.task.Description, innerWidth)))
 	}
 	if m.task.Due != "" {
-		lines = append(lines, styles.DueStyle.Render("⏰ "+m.task.Due))
+		lines = append(lines, styles.DueStyle.Render(m.task.Due))
 	}
 
 	lines = append(lines, strings.Repeat("─", innerWidth))

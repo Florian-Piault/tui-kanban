@@ -477,21 +477,31 @@ func (m AppModel) handleCommand(parsed command.ParsedCommand) (tea.Model, tea.Cm
 
 	case "add":
 		colID := m.board.ActiveColumnID()
-		title := ""
+		rawTitle := ""
 		if len(parsed.Args) > 0 {
-			title = parsed.Args[0]
+			rawTitle = parsed.Args[0]
 		}
-		if parsed.Flags["q"] && title != "" {
+		// Détection du type en préfixe optionnel : /add bug Titre / /add feat Titre
+		taskType := storage.TypeTask
+		if rawTitle != "" {
+			words := strings.SplitN(rawTitle, " ", 2)
+			if storage.IsValidType(words[0]) {
+				taskType = storage.NormalizeType(words[0])
+				if len(words) > 1 {
+					rawTitle = words[1]
+				} else {
+					rawTitle = ""
+				}
+			}
+		}
+		task := storage.Task{Title: rawTitle, Status: colID, Type: taskType}
+		if parsed.Flags["q"] && rawTitle != "" {
 			return m, func() tea.Msg {
-				return TaskCreatedMsg{Task: storage.Task{Title: title, Status: colID}}
+				return TaskCreatedMsg{Task: task}
 			}
 		}
 		return m, func() tea.Msg {
-			return OpenModalMsg{
-				Task:  storage.Task{Title: title, Status: colID},
-				IsNew: true,
-				ColID: colID,
-			}
+			return OpenModalMsg{Task: task, IsNew: true, ColID: colID}
 		}
 
 	case "edit":
@@ -649,7 +659,7 @@ func (m AppModel) padToWidth(view string) string {
 }
 
 func (m AppModel) renderHeader() string {
-	project := styles.StatusBarProjectStyle.Render("📋 " + m.cfg.CurrentProject)
+	project := styles.StatusBarProjectStyle.Render(m.cfg.CurrentProject)
 	hint := styles.HelpStyle.Render("  /commande  •  hjkl : navigation  •  enter : inspecter  •  q : quitter")
 	return lipgloss.JoinHorizontal(lipgloss.Top, project, hint)
 }

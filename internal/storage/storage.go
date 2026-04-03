@@ -73,7 +73,10 @@ func (s *Storage) SaveTask(project string, task Task) (Task, error) {
 	}
 
 	if task.ID == "" {
-		id, err := nextID(dir)
+		if task.Type == "" {
+			task.Type = TypeTask
+		}
+		id, err := nextID(s.baseDir, task.Type)
 		if err != nil {
 			return Task{}, fmt.Errorf("génération ID: %w", err)
 		}

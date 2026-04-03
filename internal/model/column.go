@@ -187,7 +187,7 @@ func (c ColumnModel) View() string {
 
 			selected := c.IsActive && i == c.Cursor
 
-			idLine := styles.TaskIDStyle.Render(task.ID)
+			idLine := lipgloss.NewStyle().Foreground(styles.TypeColor(task.Type)).Bold(true).Render(task.ID)
 			titleLine := styles.WrapText(task.Title, cardWidth-2)
 			var descLine string
 			if task.Description != "" {
@@ -198,7 +198,7 @@ func (c ColumnModel) View() string {
 			}
 			var dueLine string
 			if task.Due != "" {
-				dueLine = styles.DueStyle.Render("⏰ " + task.Due)
+				dueLine = styles.DueStyle.Render(task.Due)
 			}
 
 			done, total := task.ChecklistProgress()

@@ -8,6 +8,7 @@ const (
 	ArgTaskID                     // complété avec les IDs existants
 	ArgColumnID                   // complété avec les IDs de colonnes
 	ArgProjectName                // complété avec les projets disponibles
+	ArgTaskType                   // type de tâche (task, bug, feat, doc)
 )
 
 // ArgSpec décrit un argument d'une commande.
@@ -32,7 +33,7 @@ var Registry = []CommandDef{
 		Args: []ArgSpec{
 			{Name: "titre", Kind: ArgFree, Required: true},
 		},
-		Help: "Ajouter une tâche dans la colonne active  (-q : création rapide sans modal)",
+		Help: "Ajouter une tâche (ex: /add bug Crash, /add feat Stats)  (-q : rapide)",
 	},
 	{
 		Name: "edit",

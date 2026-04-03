@@ -16,7 +16,27 @@ var (
 	ColorDue       = lipgloss.Color("#F59E0B")
 	ColorBorder    = lipgloss.Color("#4B5563")
 	ColorBorderAct = lipgloss.Color("#7C3AED")
+
+	// Couleurs par type de tâche
+	ColorTypeBug  = lipgloss.Color("#EF4444") // rouge
+	ColorTypeFeat = lipgloss.Color("#10B981") // vert
+	ColorTypeTask = lipgloss.Color("#60A5FA") // bleu
+	ColorTypeDoc  = lipgloss.Color("#A855F7") // magenta
 )
+
+// TypeColor retourne la couleur associée à un type de tâche.
+func TypeColor(taskType string) lipgloss.Color {
+	switch taskType {
+	case "bug":
+		return ColorTypeBug
+	case "feat":
+		return ColorTypeFeat
+	case "doc":
+		return ColorTypeDoc
+	default:
+		return ColorTypeTask
+	}
+}
 
 var (
 	ColumnStyle = lipgloss.NewStyle().

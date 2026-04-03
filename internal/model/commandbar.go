@@ -1,7 +1,6 @@
 package model
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -131,6 +130,46 @@ func (m CommandBarModel) submit() tea.Cmd {
 	}
 }
 
+// highlightLabel rend le label avec les caractères matchés en gras/colorés.
+func highlightLabel(label string, matchedIndexes []int, selected bool) string {
+	const width = 36
+	if len(matchedIndexes) == 0 {
+		runes := []rune(label)
+		pad := width - len(runes)
+		if pad < 0 {
+			pad = 0
+		}
+		return label + strings.Repeat(" ", pad)
+	}
+
+	idxSet := make(map[int]bool, len(matchedIndexes))
+	for _, idx := range matchedIndexes {
+		idxSet[idx] = true
+	}
+
+	matchFg := styles.ColorPrimary
+	if selected {
+		matchFg = styles.ColorText
+	}
+	matchStyle := lipgloss.NewStyle().Bold(true).Foreground(matchFg)
+
+	var sb strings.Builder
+	runes := []rune(label)
+	for i, r := range runes {
+		ch := string(r)
+		if idxSet[i] {
+			sb.WriteString(matchStyle.Render(ch))
+		} else {
+			sb.WriteString(ch)
+		}
+	}
+	pad := width - len(runes)
+	if pad > 0 {
+		sb.WriteString(strings.Repeat(" ", pad))
+	}
+	return sb.String()
+}
+
 func (m CommandBarModel) View() string {
 	var sb strings.Builder
 
@@ -149,11 +188,12 @@ func (m CommandBarModel) View() string {
 			start = len(m.suggestions) - maxShow
 		}
 		for i := start; i < start+maxShow; i++ {
-			label := m.suggestions[i].Label
+			s := m.suggestions[i]
+			rendered := highlightLabel(s.Label, s.MatchedIndexes, i == m.selectedSuggestion)
 			if i == m.selectedSuggestion {
-				suggLines = append(suggLines, styles.SuggestionSelectedStyle.Render(fmt.Sprintf(" %-36s", label)))
+				suggLines = append(suggLines, styles.SuggestionSelectedStyle.Render(" "+rendered))
 			} else {
-				suggLines = append(suggLines, styles.SuggestionStyle.Render(fmt.Sprintf(" %-36s", label)))
+				suggLines = append(suggLines, styles.SuggestionStyle.Render(" "+rendered))
 			}
 		}
 		box := lipgloss.NewStyle().

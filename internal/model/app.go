@@ -40,6 +40,7 @@ type AppModel struct {
 	flashTimer   int
 
 	confirmID string // ID de tâche en attente de confirmation de suppression
+	pendingD  bool   // true si un "d" a été tapé, attend un second "d" pour supprimer
 
 	width  int
 	height int
@@ -441,6 +442,11 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case StateBrowsing:
+		// Réinitialise la séquence "dd" sur toute touche autre que "d"
+		if msg.String() != "d" {
+			m.pendingD = false
+		}
+
 		switch msg.String() {
 		case "/", ":":
 			m.state = StateCommanding
@@ -449,6 +455,46 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadContext()
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "n":
+			colID := m.board.ActiveColumnID()
+			task := storage.Task{Status: colID, Type: storage.TypeTask}
+			return m, func() tea.Msg {
+				return OpenModalMsg{Task: task, IsNew: true, ColID: colID}
+			}
+		case "e":
+			if task, ok := m.board.SelectedTask(); ok {
+				project := m.cfg.CurrentProject
+				store := m.storage
+				id := task.ID
+				return m, func() tea.Msg {
+					t, err := store.GetTask(project, id)
+					if err != nil {
+						return ErrMsg{Err: err}
+					}
+					return OpenModalMsg{Task: t, IsNew: false, ColID: t.Status}
+				}
+			}
+		case " ":
+			if task, ok := m.board.SelectedTask(); ok {
+				nextCol := m.nextColumnID(task.Status)
+				if nextCol == "" {
+					m.setFlash("Déjà dans la dernière colonne", false)
+					return m, nil
+				}
+				id := task.ID
+				return m, func() tea.Msg { return TaskMovedMsg{ID: id, ToCol: nextCol} }
+			}
+		case "d":
+			if m.pendingD {
+				m.pendingD = false
+				if task, ok := m.board.SelectedTask(); ok {
+					id := task.ID
+					return m, func() tea.Msg { return ConfirmDeleteMsg{ID: id} }
+				}
+			} else {
+				m.pendingD = true
+			}
+			return m, nil
 		case "enter":
 			if task, ok := m.board.SelectedTask(); ok {
 				project := m.cfg.CurrentProject
@@ -467,6 +513,17 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// nextColumnID retourne l'ID de la colonne suivant colID, ou "" si c'est la dernière.
+func (m AppModel) nextColumnID(colID string) string {
+	cols := m.cfg.Columns
+	for i, c := range cols {
+		if c.ID == colID && i+1 < len(cols) {
+			return cols[i+1].ID
+		}
+	}
+	return ""
 }
 
 func (m AppModel) handleCommand(parsed command.ParsedCommand) (tea.Model, tea.Cmd) {
@@ -660,7 +717,7 @@ func (m AppModel) padToWidth(view string) string {
 
 func (m AppModel) renderHeader() string {
 	project := styles.StatusBarProjectStyle.Render(m.cfg.CurrentProject)
-	hint := styles.HelpStyle.Render("  /commande  •  hjkl : navigation  •  enter : inspecter  •  q : quitter")
+	hint := styles.HelpStyle.Render("  /commande  •  hjkl : navigation  •  n : ajouter  •  e : éditer  •  space : avancer  •  dd : supprimer  •  enter : inspecter  •  q : quitter")
 	return lipgloss.JoinHorizontal(lipgloss.Top, project, hint)
 }
 

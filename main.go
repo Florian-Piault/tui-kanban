@@ -6,6 +6,7 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/piflorian/tui-kanban/internal/cli"
 	"github.com/piflorian/tui-kanban/internal/config"
 	"github.com/piflorian/tui-kanban/internal/model"
 	"github.com/piflorian/tui-kanban/internal/storage"
@@ -22,6 +23,10 @@ func main() {
 	}
 
 	store := storage.New(cfg.ProjectsDir)
+
+	if len(os.Args) > 1 {
+		os.Exit(cli.Run(cfg, store, os.Args[1:]))
+	}
 
 	app := model.New(cfg, store, cfgPath)
 

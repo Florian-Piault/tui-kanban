@@ -20,6 +20,7 @@ const (
 	StateEditing             // modal formulaire ouvert
 	StateConfirming          // confirmation de suppression
 	StateInspecting          // vue détaillée d'une tâche + checklists
+	StateHelping             // modale d'aide scrollable
 )
 
 const reservedLines = 2 // header(1) + statusbar(1)
@@ -34,6 +35,7 @@ type AppModel struct {
 	commandBar CommandBarModel
 	modal      ModalModel
 	inspect    InspectModel
+	help       HelpModel
 
 	flash        string
 	flashIsError bool
@@ -55,6 +57,7 @@ func New(cfg *config.Config, store *storage.Storage, cfgPath string) AppModel {
 		commandBar: NewCommandBar(),
 		modal:      NewModal(),
 		inspect:    NewInspectModel(),
+		help:       NewHelpModel(),
 	}
 }
 
@@ -136,6 +139,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.modal.Width = msg.Width
 		m.modal.applyInputWidths()
 		m.inspect.Width = msg.Width
+		if m.state == StateHelping {
+			m.help.Open(m.width, m.height)
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -335,6 +341,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = StateBrowsing
 		return m, nil
 
+	case CloseHelpMsg:
+		m.state = StateBrowsing
+		return m, tea.ClearScreen
+
 	case ErrMsg:
 		m.setFlash("✗ "+msg.Err.Error(), true)
 		m.state = StateBrowsing
@@ -362,6 +372,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StateInspecting:
 		var cmd tea.Cmd
 		m.inspect, cmd = m.inspect.Update(msg)
+		return m, cmd
+	case StateHelping:
+		var cmd tea.Cmd
+		m.help, cmd = m.help.Update(msg)
 		return m, cmd
 	}
 	return m, nil
@@ -406,6 +420,11 @@ func (m *AppModel) setFlash(text string, isError bool) {
 
 func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.state {
+	case StateHelping:
+		var cmd tea.Cmd
+		m.help, cmd = m.help.Update(msg)
+		return m, cmd
+
 	case StateCommanding:
 		var cmd tea.Cmd
 		m.commandBar, cmd = m.commandBar.Update(msg)
@@ -662,7 +681,9 @@ func (m AppModel) handleCommand(parsed command.ParsedCommand) (tea.Model, tea.Cm
 		}
 
 	case "help":
-		m.setFlash("Commandes : /add /edit /delete /move /sub-add /project /column-add /column-rename /column-delete /column-left /column-right /projects-dir /quit", false)
+		m.state = StateHelping
+		m.help.Open(m.width, m.height)
+		return m, nil
 	}
 	return m, nil
 }
@@ -681,6 +702,8 @@ func (m AppModel) View() string {
 		bottom = m.modal.View()
 	case StateInspecting:
 		bottom = m.inspect.View()
+	case StateHelping:
+		bottom = m.help.View()
 	case StateConfirming:
 		bottom = styles.ErrorStyle.Render(fmt.Sprintf("Supprimer %s ? (y/n)", m.confirmID))
 	default:

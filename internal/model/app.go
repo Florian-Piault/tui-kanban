@@ -21,6 +21,7 @@ const (
 	StateConfirming          // confirmation de suppression
 	StateInspecting          // vue détaillée d'une tâche + checklists
 	StateHelping             // modale d'aide scrollable
+	StateQuarantine          // liste des fichiers corrompus
 )
 
 const reservedLines = 2 // header(1) + statusbar(1)
@@ -41,8 +42,9 @@ type AppModel struct {
 	flashIsError bool
 	flashTimer   int
 
-	confirmID string // ID de tâche en attente de confirmation de suppression
-	pendingD  bool   // true si un "d" a été tapé, attend un second "d" pour supprimer
+	confirmID      string // ID de tâche en attente de confirmation de suppression
+	pendingD       bool   // true si un "d" a été tapé, attend un second "d" pour supprimer
+	filesWithErrors []storage.FileError
 
 	width  int
 	height int
@@ -62,7 +64,7 @@ func New(cfg *config.Config, store *storage.Storage, cfgPath string) AppModel {
 }
 
 func (m AppModel) Init() tea.Cmd {
-	return m.loadAllColumns()
+	return tea.Batch(m.loadAllColumns(), m.loadErrors())
 }
 
 // --- Init / chargement ---
@@ -98,13 +100,10 @@ func (m AppModel) loadContext() tea.Cmd {
 	project := m.cfg.CurrentProject
 	store := m.storage
 	return func() tea.Msg {
-		tasks, err := store.LoadAll(project)
-		if err != nil {
-			return ErrMsg{Err: err}
-		}
-		ids := make([]string, len(tasks))
-		titles := make(map[string]string, len(tasks))
-		for i, t := range tasks {
+		result := store.LoadAll(project)
+		ids := make([]string, len(result.Tasks))
+		titles := make(map[string]string, len(result.Tasks))
+		for i, t := range result.Tasks {
 			ids[i] = t.ID
 			titles[t.ID] = t.Title
 		}
@@ -113,6 +112,15 @@ func (m AppModel) loadContext() tea.Cmd {
 			projects = nil
 		}
 		return contextLoadedMsg{taskIDs: ids, taskTitles: titles, projects: projects}
+	}
+}
+
+func (m AppModel) loadErrors() tea.Cmd {
+	project := m.cfg.CurrentProject
+	store := m.storage
+	return func() tea.Msg {
+		result := store.LoadAll(project)
+		return CorruptFilesMsg{Files: result.FilesWithErrors}
 	}
 }
 
@@ -265,7 +273,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.board = NewBoard(m.cfg)
 		m.board.SetSize(m.width, m.height-reservedLines)
 		m.setFlash("Projet : "+msg.Name, false)
-		return m, tea.Batch(m.saveConfig(), m.loadAllColumns(), m.loadContext())
+		return m, tea.Batch(m.saveConfig(), m.loadAllColumns(), m.loadContext(), m.loadErrors())
 
 	case ColumnAddMsg:
 		col, err := m.cfg.AddColumn(msg.Name)
@@ -320,7 +328,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.board = NewBoard(m.cfg)
 		m.board.SetSize(m.width, m.height-reservedLines)
 		m.setFlash("✓ Répertoire : "+msg.Path, false)
-		return m, tea.Batch(m.saveConfig(), m.loadAllColumns(), m.loadContext())
+		return m, tea.Batch(m.saveConfig(), m.loadAllColumns(), m.loadContext(), m.loadErrors())
 
 	case configSavedMsg:
 		return m, nil
@@ -344,6 +352,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case CloseHelpMsg:
 		m.state = StateBrowsing
 		return m, tea.ClearScreen
+
+	case CorruptFilesMsg:
+		m.filesWithErrors = msg.Files
+		return m, nil
 
 	case ErrMsg:
 		m.setFlash("✗ "+msg.Err.Error(), true)
@@ -460,6 +472,13 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.inspect, cmd = m.inspect.Update(msg)
 		return m, cmd
 
+	case StateQuarantine:
+		switch msg.String() {
+		case "esc", "q":
+			m.state = StateBrowsing
+		}
+		return m, nil
+
 	case StateBrowsing:
 		// Réinitialise la séquence "dd" sur toute touche autre que "d"
 		if msg.String() != "d" {
@@ -467,6 +486,11 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "!":
+			if len(m.filesWithErrors) > 0 {
+				m.state = StateQuarantine
+			}
+			return m, nil
 		case "/", ":":
 			m.state = StateCommanding
 			m.commandBar = NewCommandBar()
@@ -706,6 +730,8 @@ func (m AppModel) View() string {
 		bottom = m.help.View()
 	case StateConfirming:
 		bottom = styles.ErrorStyle.Render(fmt.Sprintf("Supprimer %s ? (y/n)", m.confirmID))
+	case StateQuarantine:
+		bottom = m.renderQuarantine()
 	default:
 		bottom = m.renderStatusBar()
 	}
@@ -753,6 +779,9 @@ func (m AppModel) renderStatusBar() string {
 		} else {
 			parts = append(parts, styles.SuccessStyle.Render(m.flash))
 		}
+	} else if len(m.filesWithErrors) > 0 {
+		warn := fmt.Sprintf("⚠ %d fichier(s) corrompu(s) — appuyez sur ! pour voir", len(m.filesWithErrors))
+		parts = append(parts, styles.ErrorStyle.Render(warn))
 	} else {
 		col := m.board.ActiveColumn()
 		if col != nil {
@@ -763,4 +792,18 @@ func (m AppModel) renderStatusBar() string {
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+}
+
+func (m AppModel) renderQuarantine() string {
+	var sb strings.Builder
+	sb.WriteString(styles.ErrorStyle.Render(fmt.Sprintf("⚠ %d fichier(s) corrompu(s)", len(m.filesWithErrors))))
+	sb.WriteString("\n\n")
+	for _, fe := range m.filesWithErrors {
+		sb.WriteString(styles.ErrorStyle.Render("  " + fe.Path))
+		sb.WriteString("\n")
+		sb.WriteString("    → " + fe.Reason)
+		sb.WriteString("\n\n")
+	}
+	sb.WriteString(styles.HelpStyle.Render("Echap ou q pour fermer"))
+	return sb.String()
 }

@@ -20,18 +20,15 @@ func (s *Storage) projectDir(project string) string {
 	return filepath.Join(s.baseDir, project)
 }
 
-// LoadAll charge toutes les tâches d'un projet, retournées par status.
-func (s *Storage) LoadAll(project string) ([]Task, error) {
+// LoadAll charge toutes les tâches d'un projet. Les fichiers invalides sont
+// collectés dans LoadResult.FilesWithErrors au lieu de provoquer une erreur.
+func (s *Storage) LoadAll(project string) LoadResult {
+	var result LoadResult
 	dir := s.projectDir(project)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
+		return result
 	}
-
-	var tasks []Task
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
@@ -39,25 +36,24 @@ func (s *Storage) LoadAll(project string) ([]Task, error) {
 		path := filepath.Join(dir, e.Name())
 		data, err := os.ReadFile(path)
 		if err != nil {
+			result.FilesWithErrors = append(result.FilesWithErrors, FileError{Path: path, Reason: err.Error()})
 			continue
 		}
-		task, err := parseFrontmatter(string(data))
+		task, err := parseFrontmatterSafe(string(data), path)
 		if err != nil {
+			result.FilesWithErrors = append(result.FilesWithErrors, FileError{Path: path, Reason: err.Error()})
 			continue
 		}
-		tasks = append(tasks, task)
+		result.Tasks = append(result.Tasks, task)
 	}
-	return tasks, nil
+	return result
 }
 
 // LoadByStatus retourne les tâches d'une colonne/status donné.
 func (s *Storage) LoadByStatus(project, status string) ([]Task, error) {
-	all, err := s.LoadAll(project)
-	if err != nil {
-		return nil, err
-	}
+	result := s.LoadAll(project)
 	var filtered []Task
-	for _, t := range all {
+	for _, t := range result.Tasks {
 		if t.Status == status {
 			filtered = append(filtered, t)
 		}
@@ -92,7 +88,12 @@ func (s *Storage) SaveTask(project string, task Task) (Task, error) {
 	}
 
 	path := taskPath(dir, task.ID)
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return Task{}, err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
 		return Task{}, err
 	}
 	return task, nil
@@ -157,12 +158,9 @@ func (s *Storage) GetTask(project, id string) (Task, error) {
 
 // AllTaskIDs retourne tous les IDs de tâches d'un projet.
 func (s *Storage) AllTaskIDs(project string) ([]string, error) {
-	tasks, err := s.LoadAll(project)
-	if err != nil {
-		return nil, err
-	}
-	ids := make([]string, len(tasks))
-	for i, t := range tasks {
+	result := s.LoadAll(project)
+	ids := make([]string, len(result.Tasks))
+	for i, t := range result.Tasks {
 		ids[i] = t.ID
 	}
 	return ids, nil

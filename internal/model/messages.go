@@ -29,6 +29,11 @@ type ProjectChangedMsg struct{ Name string }
 type ProjectsLoadedMsg struct{ Projects []string }
 type TaskIDsLoadedMsg struct{ IDs []string }
 
+// CorruptFilesMsg est émis lors du chargement initial si des fichiers sont invalides.
+type CorruptFilesMsg struct {
+	Files []storage.FileError
+}
+
 // UI
 type ErrMsg struct{ Err error }
 type SuccessMsg struct{ Text string }

@@ -50,6 +50,18 @@ type ChecklistItem struct {
 	Done bool
 }
 
+// FileError représente un fichier .md non chargeable.
+type FileError struct {
+	Path   string
+	Reason string
+}
+
+// LoadResult est le résultat de LoadAll avec les erreurs séparées.
+type LoadResult struct {
+	Tasks           []Task
+	FilesWithErrors []FileError
+}
+
 type Task struct {
 	ID          string    `yaml:"id"`
 	Type        string    `yaml:"type,omitempty"`

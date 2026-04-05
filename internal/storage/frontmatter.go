@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -52,6 +53,26 @@ func parseChecklist(body string) []ChecklistItem {
 		})
 	}
 	return items
+}
+
+// parseFrontmatterSafe est comme parseFrontmatter mais applique des valeurs par
+// défaut pour les champs critiques manquants (id, status, title).
+func parseFrontmatterSafe(content, filename string) (Task, error) {
+	task, err := parseFrontmatter(content)
+	if err != nil {
+		return Task{}, err
+	}
+	if task.ID == "" {
+		base := filepath.Base(filename)
+		task.ID = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	if task.Status == "" {
+		task.Status = "todo"
+	}
+	if task.Title == "" {
+		task.Title = "Sans titre"
+	}
+	return task, nil
 }
 
 func writeFrontmatter(task Task) ([]byte, error) {

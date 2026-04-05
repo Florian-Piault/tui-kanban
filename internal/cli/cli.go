@@ -30,6 +30,8 @@ func Run(cfg *config.Config, store *storage.Storage, args []string) int {
 		return runShow(cfg, store, args[1:])
 	case "delete", "rm":
 		return runDelete(cfg, store, args[1:])
+	case "lint":
+		return runLint(cfg, store, args[1:])
 	case "help", "--help", "-h":
 		printHelp(cfg)
 		return 0
@@ -56,6 +58,7 @@ Commandes:
   done <ID>      Marquer une tâche comme terminée
   show <ID>      Afficher les détails d'une tâche
   delete <ID>    Supprimer une tâche
+  lint           Vérifier l'intégrité des fichiers de tâches
   help           Afficher cette aide
 
 Options communes:

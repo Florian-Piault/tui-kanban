@@ -35,15 +35,15 @@ func runList(cfg *config.Config, store *storage.Storage, args []string) int {
 	project := resolveProject(cfg, *projectFlag)
 
 	var tasks []storage.Task
-	var err error
 	if *statusFlag != "" {
+		var err error
 		tasks, err = store.LoadByStatus(project, *statusFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Erreur interne : %v\n", err)
+			return 2
+		}
 	} else {
-		tasks, err = store.LoadAll(project)
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Erreur interne : %v\n", err)
-		return 2
+		tasks = store.LoadAll(project).Tasks
 	}
 
 	if *typeFlag != "" {

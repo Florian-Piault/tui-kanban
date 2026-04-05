@@ -24,6 +24,8 @@ const (
 	StateHelping             // modale d'aide scrollable
 	StateQuarantine          // liste des fichiers corrompus
 	StateSearching           // barre de filtre/recherche
+	StatePulse               // vue graphe de vélocité
+	StateZen                 // mode concentration tâche unique
 )
 
 const reservedLines = 2 // header(1) + statusbar(1)
@@ -39,6 +41,7 @@ type AppModel struct {
 	modal      ModalModel
 	inspect    InspectModel
 	help       HelpModel
+	pulse      PulseModel
 
 	flash        string
 	flashIsError bool
@@ -72,6 +75,7 @@ func New(cfg *config.Config, store *storage.Storage, cfgPath string) AppModel {
 		modal:      NewModal(),
 		inspect:    NewInspectModel(),
 		help:       NewHelpModel(),
+		pulse:      NewPulseModel(),
 		allTasks:   make(map[string][]storage.Task),
 		sortMethod: sortMethod,
 	}
@@ -161,6 +165,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.modal.Width = msg.Width
 		m.modal.applyInputWidths()
 		m.inspect.Width = msg.Width
+		m.pulse.SetSize(msg.Width, msg.Height-1)
 		if m.state == StateHelping {
 			m.help.Open(m.width, m.height)
 		}
@@ -537,6 +542,36 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+	case StatePulse:
+		switch msg.String() {
+		case "esc", "tab", "q":
+			m.state = StateBrowsing
+		}
+		return m, nil
+
+	case StateZen:
+		switch msg.String() {
+		case "esc", "z", "q":
+			m.state = StateBrowsing
+			return m, nil
+		case "e":
+			zenTask := m.pulse.zenTask
+			if zenTask.ID != "" {
+				project := m.cfg.CurrentProject
+				store := m.storage
+				id := zenTask.ID
+				m.state = StateBrowsing
+				return m, func() tea.Msg {
+					t, err := store.GetTask(project, id)
+					if err != nil {
+						return ErrMsg{Err: err}
+					}
+					return OpenModalMsg{Task: t, IsNew: false, ColID: t.Status}
+				}
+			}
+		}
+		return m, nil
+
 	case StateBrowsing:
 		// Réinitialise la séquence "dd" sur toute touche autre que "d"
 		if msg.String() != "d" {
@@ -629,6 +664,19 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return openInspectMsg{task: t}
 				}
 			}
+		case "tab":
+			m.pulse.Compute(m.allTasks)
+			m.pulse.SetSize(m.width, m.height-1)
+			m.state = StatePulse
+			return m, nil
+		case "z":
+			if task, ok := m.board.SelectedTask(); ok {
+				m.pulse.Compute(m.allTasks)
+				m.pulse.SetSize(m.width, m.height-1)
+				m.pulse.zenTask = task
+				m.state = StateZen
+			}
+			return m, nil
 		default:
 			m.board.Update(msg)
 		}
@@ -812,6 +860,10 @@ func (m AppModel) View() string {
 		bottom = m.renderQuarantine()
 	case StateSearching:
 		bottom = m.renderFilterBar()
+	case StatePulse:
+		return m.padToWidth(lipgloss.JoinVertical(lipgloss.Left, header, m.pulse.View()))
+	case StateZen:
+		return m.padToWidth(lipgloss.JoinVertical(lipgloss.Left, header, m.pulse.ViewZen()))
 	default:
 		bottom = m.renderStatusBar()
 	}
@@ -846,7 +898,7 @@ func (m AppModel) padToWidth(view string) string {
 
 func (m AppModel) renderHeader() string {
 	project := styles.StatusBarProjectStyle.Render(m.cfg.CurrentProject)
-	hint := styles.HelpStyle.Render("  /commande • n : ajouter • e : edit • space : avancer • dd : supprimer • enter : inspecter • q : quit")
+	hint := styles.HelpStyle.Render("  /commande • n : ajouter • e : edit • space : avancer • dd : supprimer • enter : inspecter • tab : pulse • z : zen • q : quit")
 	return lipgloss.JoinHorizontal(lipgloss.Top, project, hint)
 }
 

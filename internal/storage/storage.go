@@ -85,6 +85,7 @@ func (s *Storage) SaveTask(project string, task Task) (Task, error) {
 	if task.Created.IsZero() {
 		task.Created = time.Now()
 	}
+	task.Updated = time.Now()
 
 	data, err := writeFrontmatter(task)
 	if err != nil {

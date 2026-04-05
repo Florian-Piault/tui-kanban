@@ -128,3 +128,19 @@ var (
 			Foreground(ColorTextDim).
 			Width(13)
 )
+
+// PulseBarColor retourne une couleur du gradient bleu→cyan→teal→vert selon l'intensité.
+func PulseBarColor(count int) lipgloss.Color {
+	switch {
+	case count == 0:
+		return ColorMuted
+	case count <= 2:
+		return ColorTypeTask
+	case count <= 4:
+		return lipgloss.Color("#06B6D4")
+	case count <= 6:
+		return lipgloss.Color("#14B8A6")
+	default:
+		return ColorSuccess
+	}
+}

@@ -846,7 +846,7 @@ func (m AppModel) padToWidth(view string) string {
 
 func (m AppModel) renderHeader() string {
 	project := styles.StatusBarProjectStyle.Render(m.cfg.CurrentProject)
-	hint := styles.HelpStyle.Render("  /commande  •  hjkl : navigation  •  n : ajouter  •  e : éditer  •  space : avancer  •  dd : supprimer  •  enter : inspecter  •  q : quitter")
+	hint := styles.HelpStyle.Render("  /commande • n : ajouter • e : edit • space : avancer • dd : supprimer • enter : inspecter • q : quit")
 	return lipgloss.JoinHorizontal(lipgloss.Top, project, hint)
 }
 

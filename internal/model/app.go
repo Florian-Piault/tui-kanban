@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/piflorian/tui-kanban/internal/command"
@@ -22,6 +23,7 @@ const (
 	StateInspecting          // vue détaillée d'une tâche + checklists
 	StateHelping             // modale d'aide scrollable
 	StateQuarantine          // liste des fichiers corrompus
+	StateSearching           // barre de filtre/recherche
 )
 
 const reservedLines = 2 // header(1) + statusbar(1)
@@ -42,15 +44,25 @@ type AppModel struct {
 	flashIsError bool
 	flashTimer   int
 
-	confirmID      string // ID de tâche en attente de confirmation de suppression
-	pendingD       bool   // true si un "d" a été tapé, attend un second "d" pour supprimer
+	confirmID       string // ID de tâche en attente de confirmation de suppression
+	pendingD        bool   // true si un "d" a été tapé, attend un second "d" pour supprimer
 	filesWithErrors []storage.FileError
+
+	// Filtre et tri
+	allTasks    map[string][]storage.Task
+	filter      FilterQuery
+	sortMethod  SortType
+	filterInput textinput.Model
 
 	width  int
 	height int
 }
 
 func New(cfg *config.Config, store *storage.Storage, cfgPath string) AppModel {
+	sortMethod := SortType(storage.LoadSortMethod(store.BaseDir()))
+	if sortMethod == "" {
+		sortMethod = SortDate
+	}
 	return AppModel{
 		cfg:        cfg,
 		cfgPath:    cfgPath,
@@ -60,6 +72,8 @@ func New(cfg *config.Config, store *storage.Storage, cfgPath string) AppModel {
 		modal:      NewModal(),
 		inspect:    NewInspectModel(),
 		help:       NewHelpModel(),
+		allTasks:   make(map[string][]storage.Task),
+		sortMethod: sortMethod,
 	}
 }
 
@@ -156,7 +170,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case TasksLoadedMsg:
-		m.board.SetTasks(msg.ColID, msg.Tasks)
+		m.allTasks[msg.ColID] = msg.Tasks
+		prepared := PrepareView(msg.Tasks, m.filter, m.sortMethod)
+		m.board.SetTasks(msg.ColID, prepared)
+		m.board.SetColumnTotal(msg.ColID, len(msg.Tasks))
 		return m, nil
 
 	case contextLoadedMsg:
@@ -272,6 +289,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cfg.CurrentProject = msg.Name
 		m.board = NewBoard(m.cfg)
 		m.board.SetSize(m.width, m.height-reservedLines)
+		m.allTasks = make(map[string][]storage.Task)
 		m.setFlash("Projet : "+msg.Name, false)
 		return m, tea.Batch(m.saveConfig(), m.loadAllColumns(), m.loadContext(), m.loadErrors())
 
@@ -327,6 +345,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.storage = storage.New(msg.Path)
 		m.board = NewBoard(m.cfg)
 		m.board.SetSize(m.width, m.height-reservedLines)
+		m.allTasks = make(map[string][]storage.Task)
 		m.setFlash("✓ Répertoire : "+msg.Path, false)
 		return m, tea.Batch(m.saveConfig(), m.loadAllColumns(), m.loadContext(), m.loadErrors())
 
@@ -409,6 +428,26 @@ func (m AppModel) saveConfig() tea.Cmd {
 	}
 }
 
+// applyFilterSortAll recalcule la vue de toutes les colonnes depuis allTasks.
+func (m *AppModel) applyFilterSortAll() {
+	for colID, tasks := range m.allTasks {
+		prepared := PrepareView(tasks, m.filter, m.sortMethod)
+		m.board.SetTasks(colID, prepared)
+		m.board.SetColumnTotal(colID, len(tasks))
+	}
+	m.board.SetFilter(m.filter)
+}
+
+// saveSortState persiste la méthode de tri dans .state.json de façon asynchrone.
+func (m AppModel) saveSortState() tea.Cmd {
+	baseDir := m.storage.BaseDir()
+	method := string(m.sortMethod)
+	return func() tea.Msg {
+		_ = storage.SaveSortMethod(baseDir, method)
+		return nil
+	}
+}
+
 // rebuildBoard reconstruit le board depuis la config en préservant la colonne active.
 func (m *AppModel) rebuildBoard() {
 	activeID := m.board.ActiveColumnID()
@@ -479,6 +518,25 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case StateSearching:
+		switch msg.String() {
+		case "esc", "enter":
+			m.state = StateBrowsing
+			return m, nil
+		case "ctrl+c":
+			m.filter = FilterQuery{}
+			m.filterInput.SetValue("")
+			m.applyFilterSortAll()
+			m.state = StateBrowsing
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.filterInput, cmd = m.filterInput.Update(msg)
+			m.filter = ParseSearchInput(m.filterInput.Value())
+			m.applyFilterSortAll()
+			return m, cmd
+		}
+
 	case StateBrowsing:
 		// Réinitialise la séquence "dd" sur toute touche autre que "d"
 		if msg.String() != "d" {
@@ -490,6 +548,26 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if len(m.filesWithErrors) > 0 {
 				m.state = StateQuarantine
 			}
+			return m, nil
+		case "f":
+			ti := textinput.New()
+			ti.Placeholder = "is:bug  pri:2  mot-clé…"
+			ti.Focus()
+			ti.CharLimit = 128
+			ti.SetValue(m.filter.String())
+			ti.CursorEnd()
+			m.filterInput = ti
+			m.state = StateSearching
+			return m, nil
+		case "s":
+			m.sortMethod = NextSort(m.sortMethod)
+			m.applyFilterSortAll()
+			m.setFlash("Tri : "+string(m.sortMethod), false)
+			return m, m.saveSortState()
+		case "x":
+			m.filter = FilterQuery{}
+			m.applyFilterSortAll()
+			m.setFlash("Filtre effacé", false)
 			return m, nil
 		case "/", ":":
 			m.state = StateCommanding
@@ -732,6 +810,8 @@ func (m AppModel) View() string {
 		bottom = styles.ErrorStyle.Render(fmt.Sprintf("Supprimer %s ? (y/n)", m.confirmID))
 	case StateQuarantine:
 		bottom = m.renderQuarantine()
+	case StateSearching:
+		bottom = m.renderFilterBar()
 	default:
 		bottom = m.renderStatusBar()
 	}
@@ -785,13 +865,30 @@ func (m AppModel) renderStatusBar() string {
 	} else {
 		col := m.board.ActiveColumn()
 		if col != nil {
-			info := fmt.Sprintf("Colonne : %s (%d tâches)", col.Name, len(col.Tasks))
+			var countStr string
+			if col.AllTasksCount > 0 && col.AllTasksCount > len(col.Tasks) {
+				countStr = fmt.Sprintf("%d/%d tâches", len(col.Tasks), col.AllTasksCount)
+			} else {
+				countStr = fmt.Sprintf("%d tâches", len(col.Tasks))
+			}
+			info := fmt.Sprintf("Colonne : %s  %s", col.Name, countStr)
 			parts = append(parts, styles.StatusBarStyle.Render(info))
 		}
-		parts = append(parts, styles.HelpStyle.Render(" • / pour les commandes"))
+		if !m.filter.IsEmpty() {
+			badge := fmt.Sprintf("[ Filtre: %s ]  x: effacer", m.filter.String())
+			parts = append(parts, styles.SuccessStyle.Render(badge))
+		}
+		sortLabel := lipgloss.NewStyle().Foreground(styles.ColorMuted).Render(fmt.Sprintf("tri:%s  s: changer  f: filtrer", m.sortMethod))
+		parts = append(parts, sortLabel)
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+}
+
+func (m AppModel) renderFilterBar() string {
+	hint := styles.HelpStyle.Render("  is:bug  pri:2  mot-clé  •  esc: fermer  •  ctrl+c: effacer")
+	bar := styles.CommandBarStyle.Width(m.width - 2).Render(m.filterInput.View())
+	return hint + "\n" + bar
 }
 
 func (m AppModel) renderQuarantine() string {

@@ -11,7 +11,41 @@ import (
 var counterMu sync.Mutex
 
 type stateData struct {
-	LastID int `json:"last_id"`
+	LastID     int    `json:"last_id"`
+	SortMethod string `json:"sort_method,omitempty"`
+}
+
+// LoadSortMethod retourne la méthode de tri persistée dans .state.json.
+func LoadSortMethod(baseDir string) string {
+	statePath := filepath.Join(baseDir, ".state.json")
+	var state stateData
+	if data, err := os.ReadFile(statePath); err == nil {
+		_ = json.Unmarshal(data, &state)
+	}
+	return state.SortMethod
+}
+
+// SaveSortMethod persiste la méthode de tri dans .state.json (écriture atomique).
+func SaveSortMethod(baseDir, method string) error {
+	counterMu.Lock()
+	defer counterMu.Unlock()
+
+	statePath := filepath.Join(baseDir, ".state.json")
+	var state stateData
+	if data, err := os.ReadFile(statePath); err == nil {
+		_ = json.Unmarshal(data, &state)
+	}
+	state.SortMethod = method
+
+	newData, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmpPath := statePath + ".tmp"
+	if err := os.WriteFile(tmpPath, newData, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, statePath)
 }
 
 // nextID génère un nouvel ID unique en incrémentant le compteur global dans .state.json.

@@ -24,14 +24,16 @@ func renderChecklistBar(done, total int) string {
 }
 
 type ColumnModel struct {
-	ID       string
-	Name     string
-	Tasks    []storage.Task
-	Cursor   int
-	scroll   int // index de la première tâche visible
-	Width    int
-	Height   int
-	IsActive bool
+	ID            string
+	Name          string
+	Tasks         []storage.Task
+	AllTasksCount int // total avant filtre (0 = pas de filtre actif)
+	ActiveFilter  FilterQuery
+	Cursor        int
+	scroll        int // index de la première tâche visible
+	Width         int
+	Height        int
+	IsActive      bool
 }
 
 func NewColumn(id, name string) ColumnModel {
@@ -148,7 +150,12 @@ func (c ColumnModel) View() string {
 		colStyle = styles.ColumnActiveStyle
 	}
 
-	count := fmt.Sprintf(" (%d)", len(c.Tasks))
+	var count string
+	if c.AllTasksCount > 0 && c.AllTasksCount > len(c.Tasks) {
+		count = fmt.Sprintf(" (%d/%d)", len(c.Tasks), c.AllTasksCount)
+	} else {
+		count = fmt.Sprintf(" (%d)", len(c.Tasks))
+	}
 	colTitle := titleStyle.Render(styles.TruncateTitle(c.Name, innerWidth-utf8.RuneCountInString(count)) + count)
 
 	var lines []string
@@ -187,7 +194,12 @@ func (c ColumnModel) View() string {
 
 			selected := c.IsActive && i == c.Cursor
 
-			idLine := lipgloss.NewStyle().Foreground(styles.TypeColor(task.Type)).Bold(true).Render(task.ID)
+			var idLine string
+		if c.ActiveFilter.Type != "" && strings.EqualFold(task.Type, c.ActiveFilter.Type) {
+			idLine = lipgloss.NewStyle().Background(styles.TypeColor(task.Type)).Foreground(styles.ColorBg).Bold(true).Render(task.ID)
+		} else {
+			idLine = lipgloss.NewStyle().Foreground(styles.TypeColor(task.Type)).Bold(true).Render(task.ID)
+		}
 			titleLine := styles.WrapText(task.Title, cardWidth-2)
 			var descLine string
 			if task.Description != "" {

@@ -69,6 +69,7 @@ type Task struct {
 	Status      string    `yaml:"status"`
 	Description string    `yaml:"description"`
 	Due         string    `yaml:"due,omitempty"`
+	Priority    int       `yaml:"priority,omitempty"` // 1=bas, 2=normal, 3=haute
 	Created     time.Time `yaml:"created"`
 	// Checklist est stocké dans le corps Markdown (pas dans le YAML)
 	Checklist []ChecklistItem `yaml:"-"`

@@ -16,6 +16,10 @@ func New(baseDir string) *Storage {
 	return &Storage{baseDir: baseDir}
 }
 
+func (s *Storage) BaseDir() string {
+	return s.baseDir
+}
+
 func (s *Storage) projectDir(project string) string {
 	return filepath.Join(s.baseDir, project)
 }

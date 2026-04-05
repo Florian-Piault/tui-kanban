@@ -46,6 +46,23 @@ func (b *BoardModel) SetTasks(colID string, tasks []storage.Task) {
 	}
 }
 
+// SetColumnTotal met à jour le total non filtré d'une colonne (pour afficher X/Y).
+func (b *BoardModel) SetColumnTotal(colID string, total int) {
+	for i := range b.Columns {
+		if b.Columns[i].ID == colID {
+			b.Columns[i].AllTasksCount = total
+			return
+		}
+	}
+}
+
+// SetFilter propage le filtre actif à toutes les colonnes (pour le highlighting).
+func (b *BoardModel) SetFilter(q FilterQuery) {
+	for i := range b.Columns {
+		b.Columns[i].ActiveFilter = q
+	}
+}
+
 func (b *BoardModel) ActiveColumn() *ColumnModel {
 	if b.ActiveCol >= 0 && b.ActiveCol < len(b.Columns) {
 		return &b.Columns[b.ActiveCol]
